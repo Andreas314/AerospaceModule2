@@ -1,0 +1,118 @@
+#!/bin/sh
+cd ${0%/*} || exit 1    # run from this directory
+
+# Source tutorial run functions
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+usage () {
+    exec 1>&2
+    while [ "$#" -ge 1 ]; do echo "$1"; shift; done
+    cat <<USAGE
+
+Usage: ${0##*/} [OPTIONS]
+options:
+  -c | -cores <nCores>   number of cores in parallel run
+  -h | -help             help
+  -m | -mesh <S|M|L|XL>  mesh size
+                         - S: small, 100k cells
+                         - M: medium, 1 M cells (default)
+                         - L: large, 4.5M cells
+
+Runs the ${PWD##*/} simulation
+
+USAGE
+    exit 1
+}
+
+
+refineBackgroundMesh () {
+
+    _nRefine="$1"
+    _r=0
+    while [ $_r -lt "$_nRefine" ]
+    do
+        echo "Refining the background mesh"
+        runApplication -a refineMesh -overwrite
+        _r=$(( _r + 1 ))
+    done
+}
+
+setKeyword () {
+    _entry="$1"
+    _value="$2"
+    _file="$3"
+
+    foamDictionary -entry "$_entry" -set "$_value" "$_file" > /dev/null
+}
+
+
+#- you need to use nCores <= the available physical ones
+nRefine=0;
+nCores=8;
+
+while [ "$#" -gt 0 ]
+do
+   case "$1" in
+   -c | -cores)
+      [ "$#" -ge 2 ] || usage "'$1' option requires an argument"
+      nCores=$2
+      checkCores "$2" || usage
+      shift 2
+      setKeyword numberOfSubdomains "$nCores" system/decomposeParDict
+      ;;
+
+   -h | -help)
+      usage
+      ;;
+
+   -m | -mesh)
+      [ "$#" -ge 2 ] || usage "'$1' option requires an argument"
+      mesh=$2
+      shift 2
+      case "$mesh" in
+          S)  nRefine=0;;
+          M)  nRefine=1;;
+          L)  nRefine=2;;
+          *)  usage "Invalid argument '$mesh' to -m|-mesh <S|M|L>." ;;
+      esac
+      ;;
+   -test)
+      shift
+      ;;
+   -*)
+      usage "Invalid option '$1'"
+      ;;
+   *)
+      break
+      ;;
+    esac
+done
+
+
+[ ! -d 0 ] && cp -r 0.orig 0
+
+
+#- create the background mesh
+runApplication blockMesh
+
+#- generate the .eMesh file
+runApplication surfaceFeatures
+
+# refine nesh
+refineBackgroundMesh $nRefine;
+
+#- set number of subdomains
+setKeyword numberOfSubdomains "$nCores" system/decomposeParDict;
+
+#- decompose the background domain for parallel calculation
+runApplication decomposePar -copyZero
+    
+#- mesh in parallel (overwrites by default)
+runParallel snappyHexMesh
+    
+# clean unused files
+rm -rf cellLevel level0Edge pointLevel surfaceIndex \
+   sets constant/extendedFeatureEdgeMesh
+    
+runParallel checkMesh
+

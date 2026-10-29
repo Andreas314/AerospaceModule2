@@ -1,0 +1,15 @@
+#!/bin/sh
+cd ${0%/*} || exit 1    # Run from this directory
+
+# Source tutorial run functions
+. $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+# extract mesh from archive to skip mesh generation
+#tar xzf constant/polyMesh.tgz -C constant/
+
+[ ! -d 0 ] && cp -r 0.orig 0 && decomposePar -fields
+
+runParallel potentialFoam 
+runParallel foamRun 
+
+#---------
