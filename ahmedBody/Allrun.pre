@@ -47,7 +47,6 @@ setKeyword () {
 
 
 #- you need to use nCores <= the available physical ones
-nRefine=0;
 maxCores="$(lscpu -p=Core,Socket | grep -v '^#' | sort -u | wc -l)"
 nCores=$maxCores;
 while [ "$#" -gt 0 ]
@@ -91,37 +90,75 @@ do
     esac
 done
 
+nRefine=0;
 
 [ ! -d 0 ] && cp -r 0.orig 0
+
+#HERE CHANGE THE SETUPS FOR blockMESH 
+#-----------------------------
+#my OpenFOAM neither Opens or FOAMs without this command
 source $HOME/OpenFOAM/OpenFOAM-14/etc/bashrc
+
+#get the variables, we can make it better, but for now just sauce it
 source ./variables.txt
-echo $gradeZ
-sed -E -i 's/simpleGrading \([0-9]+ [0-9]+ [0-9]+\)/simpleGrading ('$gradeX' '$gradeY' '$gradeZ')/g' system/blockMeshDict
+
+#this changes the box and 
 python3 make_background_box.py --stl constant/geometry/ahmedBody.stl \
         --upstream $sizeX1 --downstream $sizeX2 --lateral $sizeY --top $sizeZ2 --bottom $sizeZ1 \
         --cell-size $cellSize
-#- create the background mesh
+
+#sed the grading in each direction
+sed -E -i 's/simpleGrading \([0-9]+ [0-9]+ [0-9]+\)/simpleGrading ('$gradeX' '$gradeY' '$gradeZ')/g' system/blockMeshDict
+
+#-----------------------------
 runApplication blockMesh
-
-#- generate the .eMesh file
 runApplication surfaceFeatures
-
-# refine nesh
 refineBackgroundMesh $nRefine;
-
-#- set number of subdomains
 setKeyword numberOfSubdomains "$nCores" system/decomposeParDict;
-
-#- decompose the background domain for parallel calculation
 runApplication decomposePar -copyZero
-    
-#- mesh in parallel (overwrites by default)
-runParallel snappyHexMesh
-    
-# clean unused files
+#-----------------------------
+#HERE WE PLAY WITH OUR SNAPPYS
+#-----------------------------
+
+#function to calculate the first layer thickness (as stated in the presentation aboot the turbulances)
+calc_h1() {
+    awk -v U="$1" -v L="$2" -v nu="$3" -v yp="$4" 'BEGIN {
+        re = (U * L) / nu;
+        if (re < 1e5) re = 1e5;
+        cf = (2.0 * (log(re) / log(10)) - 0.65) ^ (-2.3);
+        u_tau = U * sqrt(0.5 * cf);
+        printf "%.6e\n", 2 * yp * nu / u_tau
+    }'
+}
+
+viscosity=$(grep -E '^\s*nu\s+' constant/physicalProperties | awk '{print $NF}' | tr -d ';')
+length=$(surfaceCheck constant/geometry/ahmedBody.stl 2>/dev/null \
+  | awk -F'[()]' '/Bounding Box/ {split($2,a," "); split($4,b," "); print b[1]-a[1]}')
+
+[ -z "$length" ] && { echo "Could not read body length"; exit 1; }
+echo "nu=$viscosity  L=$length  U=$U  y+=$yplus"
+
+h1=$(calc_h1 "$U" "$length" "$viscosity" "$yplus")
+echo "The first layer thickness is $h1"
+
+foamDictionary system/snappyHexMeshDict \
+    -entry addLayersControls.firstLayerThickness -set "$h1"
+
+foamDictionary system/snappyHexMeshDict -entry addLayersControls.minThickness \
+    -set "$(awk -v h="$h1" 'BEGIN{printf "%.3e", 0.2*h}')"
+
+foamDictionary system/snappyHexMeshDict \
+    -entry addLayersControls.featureAngle -set "$featureAngle"
+
+#-----------------------------
+runParallel snappyHexMesh    
 rm -rf cellLevel level0Edge pointLevel surfaceIndex \
    sets constant/extendedFeatureEdgeMesh
     
 runParallel checkMesh
+
+#This collects the grid data among the processors and creates a file, which can be plot with paraview
+#-----------------------------
 reconstructPar
 touch grid.FOAM
+grep -A12 "overall thickness" log.snappyHexMesh | tail -15

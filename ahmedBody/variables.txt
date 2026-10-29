@@ -8,3 +8,7 @@ sizeY=0
 sizeZ1=0
 sizeZ2=0.5
 cellSize=0.1
+
+yplus=1
+U=40
+featureAngle=120
