@@ -97,7 +97,9 @@ source $HOME/OpenFOAM/OpenFOAM-14/etc/bashrc
 source ./variables.txt
 echo $gradeZ
 sed -E -i 's/simpleGrading \([0-9]+ [0-9]+ [0-9]+\)/simpleGrading ('$gradeX' '$gradeY' '$gradeZ')/g' system/blockMeshDict
-
+python3 make_background_box.py --stl constant/geometry/ahmedBody.stl \
+        --upstream $sizeX1 --downstream $sizeX2 --lateral $sizeY --top $sizeZ2 --bottom $sizeZ1 \
+        --cell-size $cellSize
 #- create the background mesh
 runApplication blockMesh
 

@@ -1,0 +1,10 @@
+gradeX=1
+gradeY=10
+gradeZ=1
+
+sizeX1=2
+sizeX2=2
+sizeY=0
+sizeZ1=0
+sizeZ2=0.5
+cellSize=0.1
