@@ -142,13 +142,13 @@ h1=$(calc_h1 "$U" "$length" "$viscosity" "$yplus")
 echo "The first layer thickness is $h1"
 
 foamDictionary system/snappyHexMeshDict \
-    -entry addLayersControls.firstLayerThickness -set "$h1"
+    -entry addLayersControls/firstLayerThickness -set "$h1"
 
-foamDictionary system/snappyHexMeshDict -entry addLayersControls.minThickness \
+foamDictionary system/snappyHexMeshDict -entry addLayersControls/minThickness \
     -set "$(awk -v h="$h1" 'BEGIN{printf "%.3e", 0.2*h}')"
 
 foamDictionary system/snappyHexMeshDict \
-    -entry addLayersControls.featureAngle -set "$featureAngle"
+    -entry addLayersControls/featureAngle -set "$featureAngle"
 
 #-----------------------------
 runParallel snappyHexMesh    

@@ -165,19 +165,34 @@ addLayersControls
     {
         body
         {
-            nSurfaceLayers 3;
+            nSurfaceLayers 2;
         }
         legs
         {
-            nSurfaceLayers 3;
+            nSurfaceLayers 2;
         }
     }
 
-    relativeSizes       on;
+    relativeSizes       off;
+    nRelaxedIter        0;
     expansionRatio      1.2;
-    finalLayerThickness 0.5;
     minThickness        1e-3;
     maxThicknessToMedialRatio 0.6;
+}
+
+meshQualityControls
+{
+    minDeterminant  1e-6;
+    minFaceWeight   1e-4;
+    minVolRatio     1e-4;
+    relaxed
+    {
+        maxNonOrtho     75;
+        minDeterminant  1e-10;
+        minTwist        -1;
+        minVol          1e-20;
+        minTetQuality   -1e30;
+    }
 }
 
 writeFlags
