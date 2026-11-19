@@ -1,0 +1,19 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      nut;
+}
+
+#include        "${FOAM_CASE}/constant/caseSettings"
+
+dimensions      [0 2 -1 0 0 0 0];
+internalField   uniform 0;
+
+boundaryField
+{
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    "(inlet|outlet|top|sides)" { type calculated; value uniform 0; }
+    "(bottom|body|legs)"       { type nutkWallFunction; value uniform 0; }
+}

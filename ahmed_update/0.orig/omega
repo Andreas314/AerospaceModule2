@@ -1,0 +1,21 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      omega;
+}
+
+#include        "${FOAM_CASE}/constant/caseSettings"
+
+dimensions      [0 0 -1 0 0 0 0];
+internalField   uniform $turbulentOmega;
+
+boundaryField
+{
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    inlet   { type fixedValue;  value $internalField; }
+    outlet  { type inletOutlet; inletValue $internalField; value $internalField; }
+    "(top|sides)" { type freestream; freestreamValue $internalField; }
+    "(bottom|body|legs)" { type omegaWallFunction; value $internalField; }
+}

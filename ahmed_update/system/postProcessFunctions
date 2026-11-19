@@ -1,0 +1,98 @@
+Co
+{
+    type            CourantNo;
+    libs            ("libfieldFunctionObjects.so");
+    executeControl  timeStep;
+    writeControl    writeTime;
+}
+
+pExtrema
+{
+    type            fieldMinMax;
+    libs            ("libfieldFunctionObjects.so");
+    fields          (p);
+    executeControl  timeStep;
+    writeControl    timeStep;
+    writeInterval   10;
+}
+
+forceCoeffs
+{
+    type            forceCoeffs;
+    libs            ("libforces.so");
+    executeControl  timeStep;
+    writeControl    timeStep;
+    writeInterval   1;
+    patches         (ahmedBody);
+    rho             rhoInf;
+    rhoInf          1.0;          // kinematic pressure -> coefficients unaffected
+    CofR            (0.522 0.0975565 -0.025576);
+    dragDir         (1 0 0);
+    liftDir         (0 0 1);
+    pitchAxis       (0 1 0);
+    magUInf         40;
+    lRef            1.044;
+    Aref            0.0660759;
+}
+
+yPlus
+{
+    type            yPlus;
+    libs            ("libfieldFunctionObjects.so");
+    executeControl  writeTime;
+    writeControl    writeTime;
+}
+
+wallShearStress
+{
+    type            wallShearStress;
+    libs            ("libfieldFunctionObjects.so");
+    patches         (ahmedBody);
+    executeControl  writeTime;
+    writeControl    writeTime;
+}
+
+Q
+{
+    type            Q;
+    libs            ("libfieldFunctionObjects.so");
+    executeControl  writeTime;
+    writeControl    writeTime;
+}
+
+vorticity
+{
+    type            vorticity;
+    libs            ("libfieldFunctionObjects.so");
+    executeControl  writeTime;
+    writeControl    writeTime;
+}
+
+planeZ0                                   // cutting plane z = 0
+{
+    type            surfaces;
+    libs            ("libsampling.so");
+    executeControl  writeTime;
+    writeControl    writeTime;
+    surfaceFormat   vtk;
+    interpolationScheme cellPoint;
+    fields          (U p k Q vorticity);
+    surfaces
+    (
+        z0 { type plane; point (0 0 0); normal (0 0 1); }
+    );
+}
+
+bodySurface                               // p, tau_w, y+ on the body
+{
+    type            surfaces;
+    libs            ("libsampling.so");
+    executeControl  writeTime;
+    writeControl    writeTime;
+    surfaceFormat   vtk;
+    fields          (p wallShearStress yPlus);
+    surfaces
+    (
+        body { type patch; patches (ahmedBody); }
+    );
+}

@@ -1,0 +1,2 @@
+mesh,cells,subdomains,yplus_target,U,elapsed_s,iterations,Cd_mean,Cd_std,Cd_converged,Cl_mean,Cl_std,Cl_converged,Cm_mean,Cm_std,Cm_converged
+M,336803,6,1,40,653,539,0.28309323177570095,0.0028391455421078148,False,0.14291365607476633,0.007778202456712173,False,-0.14803796542056072,0.006073789698969575,False

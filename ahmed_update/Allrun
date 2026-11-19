@@ -1,0 +1,32 @@
+#!/bin/bash
+cd "${0%/*}" || exit 1                       # run from this directory
+# ---- OpenFOAM environment: this case needs OpenFOAM 14 (openfoam.org), not ESI/openfoam.com (v2306 ...)
+if [ -z "$WM_PROJECT_DIR" ]; then
+    source "${FOAM_BASHRC:-$HOME/OpenFOAM/OpenFOAM-14/etc/bashrc}" || exit 1
+fi
+#if [ "$WM_PROJECT_VERSION" != "14" ] || [ -n "$FOAM_API" ]; then
+#    echo "Wrong OpenFOAM loaded: WM_PROJECT_DIR=$WM_PROJECT_DIR (version $WM_PROJECT_VERSION)." >&2
+#    echo "This case needs OpenFOAM 14 (openfoam.org). Open a NEW terminal and run:" >&2
+#    echo "    source \$HOME/OpenFOAM/OpenFOAM-14/etc/bashrc   (or set FOAM_BASHRC)" >&2
+#    exit 1
+#fi
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# mesh first (all options such as -m S|M|L and -c <n> are passed on)
+if [ ! -d processor0/constant/polyMesh ] || [ "$#" -gt 0 ]; then
+    ./Allrun.pre "$@" || exit 1
+fi
+source ./case.inputs
+
+start=$(date +%s)
+rm -rf postProcessing log.potentialFoam log.foamRun
+decomposePar -fields > log.decomposeFields 2>&1      # keep the processor meshes
+runParallel potentialFoam
+runParallel foamRun -solver incompressibleFluid
+elapsed=$(( $(date +%s) - start ))
+
+# ---- convergence analysis of the force coefficients (Cd, Cl, Cm), residuals, y+
+nProcs=$(foamDictionary -entry numberOfSubdomains -value system/decomposeParDict)
+cells=$(awk '/^ *cells:/ {print $2; exit}' log.checkMesh)
+python3 plot_convergence.py --case . --mesh "${meshSize}" --cells "$cells" --subdomains "$nProcs" \
+    --elapsed "$elapsed" --yplus "$yplus" --U "$U" | tee log.convergence

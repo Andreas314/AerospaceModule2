@@ -1,0 +1,22 @@
+FoamFile
+{
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+
+#include        "${FOAM_CASE}/constant/caseSettings"
+
+dimensions      [0 1 -1 0 0 0 0];
+internalField   uniform $flowVelocity;
+
+boundaryField
+{
+    #includeEtc "caseDicts/setConstraintTypes"   // symmetryPlane, processor, ...
+
+    inlet   { type fixedValue;   value $internalField; }
+    outlet  { type inletOutlet;  inletValue uniform (0 0 0); value $internalField; }
+    bottom  { type fixedValue;   value $internalField; }      // moving ground
+    "(top|sides)" { type freestreamVelocity; freestreamValue $internalField; }
+    "(body|legs)" { type noSlip; }
+}

@@ -1,0 +1,22 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    object      p;
+}
+
+#include        "${FOAM_CASE}/constant/caseSettings"
+
+dimensions      [0 2 -2 0 0 0 0];
+internalField   uniform $pressure;
+
+boundaryField
+{
+    #includeEtc "caseDicts/setConstraintTypes"
+
+    inlet   { type zeroGradient; }
+    outlet  { type fixedValue;   value uniform $pressure; }
+    bottom  { type zeroGradient; }
+    "(top|sides)" { type freestreamPressure; freestreamValue uniform $pressure; }
+    "(body|legs)" { type zeroGradient; }
+}

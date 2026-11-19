@@ -1,0 +1,7 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+cleanCase
+rm -rf 0 processor* postProcessing constant/caseSettings constant/geometry/*.eMesh \
+    convergence*.png convergence_report.txt grid.FOAM problemFaces __pycache__ log.*
+# summary.csv (one row per run) is kept on purpose

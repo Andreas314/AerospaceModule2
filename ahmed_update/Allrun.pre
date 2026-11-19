@@ -1,0 +1,244 @@
+#!/bin/bash
+cd "${0%/*}" || exit 1                       # run from this directory
+
+# ---- OpenFOAM environment: this case needs OpenFOAM 14 (openfoam.org), not ESI/openfoam.com (v2306 ...)
+if [ -z "$WM_PROJECT_DIR" ]; then
+    source "${FOAM_BASHRC:-$HOME/OpenFOAM/OpenFOAM-14/etc/bashrc}" || exit 1
+fi
+#if [ "$WM_PROJECT_VERSION" != "14" ] || [ -n "$FOAM_API" ]; then
+#    echo "Wrong OpenFOAM loaded: WM_PROJECT_DIR=$WM_PROJECT_DIR (version $WM_PROJECT_VERSION)." >&2
+#    echo "This case needs OpenFOAM 14 (openfoam.org). Open a NEW terminal and run:" >&2
+#    echo "    source \$HOME/OpenFOAM/OpenFOAM-14/etc/bashrc   (or set FOAM_BASHRC)" >&2
+#    exit 1
+#fi
+. "$WM_PROJECT_DIR/bin/tools/RunFunctions"
+
+# =====================================================================
+#  Fixed meshing targets (not inputs)
+# =====================================================================
+nLayersBody=10          # defaults; override in case.inputs
+nLayersLegs=2
+coverageTarget=90       # required layer coverage [%] = "Added N out of M cells (P%)"
+lastToCell=0.5          # wanted (last layer thickness)/(surface cell size)
+expansionMax=1.3        # cap on the layer expansion ratio
+maxAttempts=3           # snappyHexMesh retries (each one more lenient) until coverage is met
+
+# background box, in multiples of the body length L (flow along +x, half model, symmetry at y=0)
+sizeUpstream=2; sizeDownstream=2; sizeLateral=1; sizeTop=0.5; sizeBottom=0
+
+# ---- the 3 prescribed meshes: background cell size + cell cap.
+#      snappy refinement levels stay the same -> same mesh, scaled by 2x per step
+#      (cell counts are estimates scaled from the earlier 0.08 m run; real number printed at the end)
+setMeshSize () {
+    case "$1" in
+        S|s) meshSize=S; cellSize=0.16; maxGlobalCells=2000000;  cellsApprox="~0.15 M" ;;
+        M|m) meshSize=M; cellSize=0.08; maxGlobalCells=8000000;  cellsApprox="~0.8 M"  ;;
+        L|l) meshSize=L; cellSize=0.04; maxGlobalCells=40000000; cellsApprox="~5 M"    ;;
+        *)   return 1 ;;
+    esac
+}
+
+usage () {
+    exec 1>&2
+    while [ "$#" -ge 1 ]; do echo "$1"; shift; done
+    cat <<USAGE
+
+Usage: ${0##*/} [OPTIONS]
+options:
+  -c | -cores <nCores>   number of cores in parallel run (default: physical cores)
+  -m | -mesh <S|M|L>     mesh size (default: meshSize in case.inputs)
+                         - S: small   (background 0.16 m, ~0.15 M cells)
+                         - M: medium  (background 0.08 m, ~0.8 M cells)
+                         - L: large   (background 0.04 m, ~5 M cells)
+  -h | -help             help
+
+Inputs (U, turbulence intensity/length, y+) are read from case.inputs.
+Meshes the Ahmed body: ${nLayersBody} layers on the body, ${nLayersLegs} on the legs, >= ${coverageTarget}% coverage.
+
+USAGE
+    exit 1
+}
+
+maxCores="$(lscpu -p=Core,Socket | grep -v '^#' | sort -u | wc -l)"
+nCores=$maxCores
+meshOpt=
+while [ "$#" -gt 0 ]
+do
+    case "$1" in
+    -c | -cores)
+        [ "$#" -ge 2 ] || usage "'$1' option requires an argument"
+        nCores=$2
+        [ "$nCores" -gt "$maxCores" ] && { echo "Not enough cores available (max $maxCores)"; exit 1; }
+        shift 2 ;;
+    -m | -mesh)
+        [ "$#" -ge 2 ] || usage "'$1' option requires an argument"
+        meshOpt=$2; shift 2 ;;
+    -h | -help) usage ;;
+    -*) usage "Invalid option '$1'" ;;
+    *)  break ;;
+    esac
+done
+
+# ---- inputs
+[ -f case.inputs ] || { echo "case.inputs not found"; exit 1; }
+source ./case.inputs
+for v in nLayersBody nLayersLegs; do
+    [[ "${!v}" =~ ^[1-9][0-9]*$ ]] || { echo "case.inputs: $v must be a positive integer"; exit 1; }
+done
+setMeshSize "${meshOpt:-$meshSize}" || usage "Mesh size must be S, M or L"
+for v in U turbIntensity turbLengthScale yplus; do
+    awk -v x="${!v}" 'BEGIN{exit !(x+0 > 0)}' || { echo "case.inputs: $v must be a positive number"; exit 1; }
+done
+
+setKeyword () { foamDictionary "$3" -entry "$1" -set "$2" > /dev/null; }
+snappy ()     { setKeyword "$1" "$2" system/snappyHexMeshDict; }
+run  ()       { rm -f "log.$1"; runApplication "$@"; }
+runp ()       { rm -f "log.$1"; runParallel "$@"; }
+
+#-----------------------------------------------------------------------
+# Fresh start: fields from 0.orig, settings from case.inputs
+#-----------------------------------------------------------------------
+rm -rf 0 processor* constant/polyMesh postProcessing log.*
+cp -r 0.orig 0
+
+geom=($(python3 stl_info.py constant/geometry/ahmedBody.stl body))   # L  frontal-area(half body)
+length=${geom[0]}; Aref=${geom[1]}
+[ -z "$length" ] && { echo "Could not read body length from the STL"; exit 1; }
+viscosity=$(grep -E '^\s*nu\s+' constant/physicalProperties | awk '{print $NF}' | tr -d ';')
+
+# k = 1.5 (U I)^2 ; omega = sqrt(k)/(Cmu^0.25 l) ; eps = Cmu^0.75 k^1.5 / l
+read -r tke omega eps <<< "$(awk -v U="$U" -v I="$turbIntensity" -v l="$turbLengthScale" 'BEGIN{
+    k=1.5*(U*I)^2; cmu=0.09
+    printf "%.6g %.6g %.6g", k, sqrt(k)/(cmu^0.25*l), cmu^0.75*k^1.5/l }')"
+
+cat > constant/caseSettings <<EOT
+// generated by Allrun.pre from case.inputs -- do not edit
+flowVelocity     ($U 0 0);
+pressure         0;
+turbulentKE      $tke;
+turbulentOmega   $omega;
+turbulentEpsilon $eps;
+
+magUInf          $U;
+lRef             $length;
+Aref             $Aref;
+EOT
+
+echo "U=$U  I=$turbIntensity  l=$turbLengthScale  ->  k=$tke  omega=$omega"
+
+#-----------------------------------------------------------------------
+# Near-wall design: first layer from y+ (flat-plate Cf correlation, as in the lectures)
+#-----------------------------------------------------------------------
+calc_h1 () {      # U L nu y+  ->  first cell thickness  (y+ is at the cell centre -> h = 2 y)
+    awk -v U="$1" -v L="$2" -v nu="$3" -v yp="$4" 'BEGIN {
+        re = (U * L) / nu; if (re < 1e5) re = 1e5
+        cf = (2.0 * (log(re) / log(10)) - 0.65) ^ (-2.3)
+        u_tau = U * sqrt(0.5 * cf)
+        printf "%.6e\n", 2 * yp * nu / u_tau }'
+}
+# expansion ratio so that the last of n layers is  lastToCell * (cell size), capped to [1, expansionMax]
+calc_r () {       # n h1 cell
+    awk -v n="$1" -v h1="$2" -v c="$3" -v f="$lastToCell" -v rmax="$expansionMax" 'BEGIN {
+        r = (n > 1) ? (f * c / h1) ^ (1.0 / (n - 1)) : 1.0
+        if (r > rmax) r = rmax; if (r < 1.0) r = 1.0
+        printf "%.4f\n", r }'
+}
+
+h1=$(calc_h1 "$U" "$length" "$viscosity" "$yplus")
+cellBody=$(awk -v h="$cellSize" 'BEGIN{printf "%.4e", h/2^3}')    # body surface level (3 4)
+cellLegs=$(awk -v h="$cellSize" 'BEGIN{printf "%.4e", h/2^4}')    # legs surface level (4 5)
+rBody=$(calc_r "$nLayersBody" "$h1" "$cellBody")
+rLegs=$(calc_r "$nLayersLegs" "$h1" "$cellLegs")
+
+layerInfo () {    # name n r cell
+    awk -v nm="$1" -v n="$2" -v r="$3" -v h="$h1" -v c="$4" 'BEGIN{
+        T = (r==1.0) ? n*h : h*(r^n-1)/(r-1); last = h*r^(n-1)
+        printf "  %-5s n=%-2d h1=%.3e r=%.3f  total=%.3e  last=%.3e = %.3f x surface cell (%.3e)\n", nm,n,h,r,T,last,last/c,c }'
+}
+echo "-----------------------------------------------------------------"
+echo "mesh $meshSize ($cellsApprox cells)  background cell $cellSize m   nu=$viscosity  L=$length  y+=$yplus"
+layerInfo body "$nLayersBody" "$rBody" "$cellBody"
+layerInfo legs "$nLayersLegs" "$rLegs" "$cellLegs"
+awk -v h="$h1" -v c="$cellLegs" 'BEGIN{ if (h > 0.5*c) print "  WARNING: first layer > 0.5 x leg surface cell: y+ too high for this mesh size" }'
+awk -v r="$rBody" -v m="$expansionMax" 'BEGIN{ if (r >= m) print "  NOTE: expansion capped at " m ": the layer stack stays much thinner than the surface cell (small y+ on a coarse mesh) -> expect a large size jump out of the layers" }'
+echo "-----------------------------------------------------------------"
+
+#-----------------------------------------------------------------------
+# Background mesh (half model, symmetry plane at y=0)
+#-----------------------------------------------------------------------
+python3 make_background_box.py --stl constant/geometry/ahmedBody.stl --half \
+    --upstream $sizeUpstream --downstream $sizeDownstream --lateral $sizeLateral \
+    --top $sizeTop --bottom $sizeBottom --cell-size "$cellSize" | tee log.makeBackgroundBox
+
+setKeyword numberOfSubdomains "$nCores" system/decomposeParDict
+snappy castellatedMeshControls/maxGlobalCells "$maxGlobalCells"
+snappy castellatedMeshControls/maxLocalCells 10000000
+
+# layer thickness (identical for every attempt)
+snappy addLayersControls/layers/body/nSurfaceLayers      "$nLayersBody"
+snappy addLayersControls/layers/legs/nSurfaceLayers      "$nLayersLegs"
+snappy addLayersControls/layers/body/firstLayerThickness "$h1"
+snappy addLayersControls/layers/legs/firstLayerThickness "$h1"
+snappy addLayersControls/layers/body/expansionRatio      "$rBody"
+snappy addLayersControls/layers/legs/expansionRatio      "$rLegs"
+snappy addLayersControls/firstLayerThickness             "$h1"
+snappy addLayersControls/expansionRatio                  "$rBody"
+snappy addLayersControls/minThickness                    "$(awk -v h="$h1" 'BEGIN{printf "%.3e", 0.1*h}')"
+
+layerCoverage () {   # last "Added N out of M cells (P%)" printed by snappyHexMesh
+    grep -E 'Added [0-9]+ out of [0-9]+ cells' log.snappyHexMesh | tail -1 \
+        | sed -E 's/.*\(([0-9.eE+-]+)%\).*/\1/'
+}
+
+#-----------------------------------------------------------------------
+# snappyHexMesh, retried with more lenient layer settings until coverage >= target
+#-----------------------------------------------------------------------
+attempt=1; coverage=0
+while [ "$attempt" -le "$maxAttempts" ]
+do
+    case $attempt in      # nRelaxedIter  maxThicknessToMedialRatio  nSmoothThickness  featureAngle
+        1) set -- 5  0.6 10 120 ;;
+        2) set -- 0  0.8 20 150 ;;
+        *) set -- 0  1.0 30 180 ;;
+    esac
+    snappy addLayersControls/nRelaxedIter              "$1"
+    snappy addLayersControls/maxThicknessToMedialRatio "$2"
+    snappy addLayersControls/nSmoothThickness          "$3"
+    snappy addLayersControls/featureAngle              "$4"
+
+    echo "=== snappyHexMesh attempt $attempt/$maxAttempts (nRelaxedIter=$1 medialRatio=$2 nSmoothThickness=$3 featureAngle=$4)"
+    run blockMesh
+    run surfaceFeatures
+    rm -rf processor*
+    run decomposePar -force -copyZero
+    runp snappyHexMesh
+    cp log.snappyHexMesh "log.snappyHexMesh.try$attempt"
+    rm -rf cellLevel level0Edge pointLevel surfaceIndex sets constant/extendedFeatureEdgeMesh
+
+    if ! grep -q 'Finished meshing' log.snappyHexMesh; then
+        echo "snappyHexMesh did not finish (see log.snappyHexMesh.try$attempt)"
+    else
+        coverage=$(layerCoverage); coverage=${coverage:-0}
+        echo "    layer coverage: ${coverage}%  (target ${coverageTarget}%)"
+        awk -v c="$coverage" -v t="$coverageTarget" 'BEGIN{exit !(c+0 >= t+0)}' && break
+    fi
+    attempt=$((attempt + 1))
+done
+
+#-----------------------------------------------------------------------
+runp checkMesh -allGeometry -allTopology
+reconstructPar                      # merged mesh for ParaView (grid.FOAM)
+touch grid.FOAM
+
+cells=$(awk '/^ *cells:/ {print $2; exit}' log.checkMesh)
+echo "================================================================="
+echo "mesh $meshSize: ${cells:-?} cells, y+ target $yplus, first layer $h1 m"
+grep -A8 "layers   overall thickness\|layers avg thickness" log.snappyHexMesh | tail -12
+if awk -v c="$coverage" -v t="$coverageTarget" 'BEGIN{exit !(c+0 >= t+0)}'
+then
+    echo "layer coverage ${coverage}% >= ${coverageTarget}%  OK"
+else
+    echo "WARNING: layer coverage ${coverage}% < ${coverageTarget}% after $maxAttempts attempts"
+    echo "         (see log.snappyHexMesh.try*; try a finer mesh or a larger y+)"
+    exit 1
+fi
