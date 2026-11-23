@@ -123,13 +123,18 @@ def main():
         row.update({f"{c}_mean": s["mean"], f"{c}_std": s["std"], f"{c}_converged": s["converged"]})
     for p, (mn, mx, av) in yp.items():
         row[f"yplus_avg_{p}"] = av
-    out = case / "summary.csv"
-    new = not out.exists()
-    with out.open("a", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(row))
-        if new:
-            w.writeheader()
-        w.writerow(row)
+    out = case / "summary.csv"                 
+    old, names = [], []                        
+    if out.exists():
+        with out.open(newline="") as fh:
+            rd = csv.DictReader(fh)
+            names = list(rd.fieldnames or [])
+            old = [{k: v for k, v in r.items() if k is not None} for r in rd]
+    names += [k for k in row if k not in names]
+    with out.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=names, restval="")
+        w.writeheader()
+        w.writerows(old + [row])
 
 
 if __name__ == "__main__":
