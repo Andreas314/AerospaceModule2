@@ -18,10 +18,10 @@ fi
 # =====================================================================
 nLayersBody=10          # defaults; override in case.inputs
 nLayersLegs=2
-coverageTarget=90       # required layer coverage [%] = "Added N out of M cells (P%)"
+coverageTarget=${COVERAGE_TARGET:-90}   # required layer coverage [%] = "Added N out of M cells (P%)"
 lastToCell=0.5          # wanted (last layer thickness)/(surface cell size)
 expansionMax=1.3        # cap on the layer expansion ratio
-maxAttempts=3           # snappyHexMesh retries (each one more lenient) until coverage is met
+maxAttempts=${MAX_ATTEMPTS:-3}   # snappyHexMesh retries (each one more lenient) until coverage is met
 
 # background box, in multiples of the body length L (flow along +x, half model, symmetry at y=0)
 sizeUpstream=2; sizeDownstream=2; sizeLateral=1; sizeTop=0.5; sizeBottom=0
@@ -86,6 +86,7 @@ for v in nLayersBody nLayersLegs; do
     [[ "${!v}" =~ ^[1-9][0-9]*$ ]] || { echo "case.inputs: $v must be a positive integer"; exit 1; }
 done
 setMeshSize "${meshOpt:-$meshSize}" || usage "Mesh size must be S, M or L"
+echo "$meshSize" > .meshSize        # the size really built (-m overrides case.inputs); Allrun reads it
 for v in U turbIntensity turbLengthScale yplus; do
     awk -v x="${!v}" 'BEGIN{exit !(x+0 > 0)}' || { echo "case.inputs: $v must be a positive number"; exit 1; }
 done
@@ -197,10 +198,11 @@ attempt=1; coverage=0
 while [ "$attempt" -le "$maxAttempts" ]
 do
     case $attempt in      # nRelaxedIter  maxThicknessToMedialRatio  nSmoothThickness  featureAngle
-        1) set -- 5  0.6 10 120 ;;
+        1) set -- 0  0.8 10 120 ;;
         2) set -- 0  0.8 20 150 ;;
         *) set -- 0  1.0 30 180 ;;
     esac
+    [ -n "$LAYER_SET" ] && set -- $LAYER_SET   # experiments: LAYER_SET="nRelaxedIter medialRatio nSmoothThickness featureAngle"
     snappy addLayersControls/nRelaxedIter              "$1"
     snappy addLayersControls/maxThicknessToMedialRatio "$2"
     snappy addLayersControls/nSmoothThickness          "$3"

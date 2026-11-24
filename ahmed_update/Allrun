@@ -17,6 +17,7 @@ if [ ! -d processor0/constant/polyMesh ] || [ "$#" -gt 0 ]; then
     ./Allrun.pre "$@" || exit 1
 fi
 source ./case.inputs
+[ -f .meshSize ] && meshSize=$(cat .meshSize)   # mesh actually built (-m overrides case.inputs)
 
 start=$(date +%s)
 rm -rf postProcessing log.potentialFoam log.foamRun
