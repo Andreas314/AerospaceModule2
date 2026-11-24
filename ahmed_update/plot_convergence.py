@@ -78,6 +78,19 @@ def main():
     case = Path(a.case)
 
     res, yp = parse_log(case / "log.foamRun")
+    # y+ comes from the yPlus function object: postProcessing/yPlus/<t0>/yPlus.dat
+    # (columns: time patch min max average). Last time wins; the moving ground is skipped.
+    ydat = sorted((case / "postProcessing" / "yPlus").glob("*/yPlus.dat"))
+    if ydat:
+        last = {}
+        for line in ydat[-1].read_text().splitlines():
+            f = line.split()
+            if len(f) >= 5 and not line.lstrip().startswith("#"):
+                try:
+                    last[f[1]] = (float(f[2]), float(f[3]), float(f[4]))
+                except ValueError:
+                    pass
+        yp = {k: v for k, v in last.items() if k != "bottom"} or yp
     cols, F = parse_forces(case)
     if F is None or len(F) < 20:
         print("No (or too few) forceCoeffs data found in postProcessing/forceCoeffs")
