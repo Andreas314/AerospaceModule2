@@ -1,0 +1,14 @@
+sweep/
+processor*/
+results/
+*.bak*
+log.*
+__pycache__/
+0/
+constant/polyMesh/
+constant/caseSettings
+constant/geometry/*.eMesh
+grid.FOAM
+layer_sweep*.csv
+summary.csv*
+.meshSize
