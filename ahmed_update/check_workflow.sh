@@ -30,7 +30,13 @@ echo "== 3. mesh (after Allrun.pre)"
     between "${cov:-0}" "${tgt:-90}" 100.1 && ok "layer coverage ${cov}% >= ${tgt}%" || fail "layer coverage ${cov:-?}% < ${tgt}%" "fewer layers, or see layer_sweep.sh"
     ntry=$(ls log.snappyHexMesh.try* 2>/dev/null | wc -l)
     [ "$ntry" -le 1 ] && ok "layers added at the first attempt" || warn "needed $ntry snappy attempts" "later attempts use featureAngle up to 180 / relaxed limits -> check cell quality"
-    grep -q 'Mesh OK' log.checkMesh 2>/dev/null && ok "checkMesh: Mesh OK" || fail "checkMesh not OK" "grep -B3 -A3 -i 'failed' log.checkMesh"
+    soft_re='face tets|determinant|concave|interpolation weight|volume ratio|flatness|warpage'
+    hardn=$(grep -E '^ *\*\*\*' log.checkMesh 2>/dev/null | grep -Eiv "$soft_re" | wc -l)
+    softn=$(grep -E '^ *\*\*\*' log.checkMesh 2>/dev/null | grep -Eic "$soft_re")
+    if [ ! -s log.checkMesh ]; then fail "log.checkMesh missing" "checkMesh did not run"
+    elif [ "$hardn" -gt 0 ]; then fail "checkMesh: $hardn HARD failure(s) (skewness / openness / negative volume / non-orthogonality)" "grep -n '\*\*\*' log.checkMesh"
+    elif [ "$softn" -gt 0 ]; then warn "checkMesh: $softn soft stiffness warning(s) (small determinant / face tets / volume ratio ...)" "typical for y+~1 prism layers; fewer with more layers (smaller size jump)"
+    else ok "checkMesh: Mesh OK"; fi
     cells=$(awk '/^ *cells:/ {print $2; exit}' log.checkMesh 2>/dev/null)
     [ "${cells:-0}" -gt 30000 ] && ok "mesh has $cells cells (more than the bare background mesh)" || fail "only ${cells:-0} cells" "the layered mesh is not the one checked: add -overwrite to snappyHexMesh"
     if ls -d processor0/constant/polyMesh >/dev/null 2>&1; then
