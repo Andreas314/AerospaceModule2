@@ -57,9 +57,9 @@ SIMPLE
     nNonOrthogonalCorrectors 1;
     residualControl
     {
-        p               0.001;
-        U               0.001;
-        "(k|omega|h)"   0.001;
+        p               1e-6;
+        U               1e-6;
+        "(k|omega|h)"   1e-6;
     }
 }
 

@@ -14,7 +14,7 @@ solver          incompressibleFluid;
 startFrom       startTime;
 startTime       0;
 stopAt          endTime;
-endTime         2000;          // SIMPLE iterations
+endTime         3000;          // SIMPLE iterations
 deltaT          1;
 
 writeControl    timeStep;

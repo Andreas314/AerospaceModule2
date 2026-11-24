@@ -15,5 +15,5 @@ boundaryField
     #includeEtc "caseDicts/setConstraintTypes"
 
     "(inlet|outlet|top|sides)" { type calculated; value uniform 0; }
-    "(bottom|body|legs)"       { type nutkWallFunction; value uniform 0; }
+    "(bottom|body|legs)"       { type nutUSpaldingWallFunction; value uniform 0; }
 }
