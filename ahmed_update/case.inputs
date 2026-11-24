@@ -6,6 +6,6 @@ U=40                  # inlet / initial velocity along +x [m/s]
 turbIntensity=0.01    # inlet turbulence intensity I [-]   k = 1.5 (U I)^2
 turbLengthScale=0.01  # inlet turbulence length scale l [m]  omega = sqrt(k)/(Cmu^0.25 l)
 yplus=1               # target y+ at the first cell CENTRE (body and legs)
-nLayersBody=10        # prism layers on the body
+nLayersBody=15        # prism layers on the body
 nLayersLegs=2         # prism layers on the legs
 meshSize=M            # default size if -m is not given: S | M | L
